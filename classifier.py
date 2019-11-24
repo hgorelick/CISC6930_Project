@@ -1,8 +1,12 @@
-from pathlib import Path
+from dataset import Adolescents, Adults, Children
 
-import numpy as np
-import pandas as pd
-from sklearn.svm import  LinearSVC
-from sklearn.ensemble.forest import RandomForestClassifier
-from sklearn.neighbors import NearestNeighbors
 
+def main():
+    for data_set in [Adolescents, Adults, Children]:
+        data_set.fit()
+        data_set.score()
+        print(data_set.accuracies)
+
+
+if __name__ == "__main__":
+    main()

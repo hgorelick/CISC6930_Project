@@ -1,7 +1,8 @@
 import os
+from copy import deepcopy
+from math import sqrt, floor
 from pathlib import Path
 from typing import List, Dict
-from math import sqrt, floor
 
 import numpy as np
 import pandas as pd
@@ -29,22 +30,29 @@ CONTINENTS = ["africa", "asia", "europe", "north america",
 
 
 class DataSet:
-    def __init__(self, train_file_path: Path, split_ratio: float = 0.8):
+    def __init__(self, train_file_paths: List[Path], split_ratio: float = 0.8):
         """
         Creates a DataSet object using the given arff file.
         Calculates variables required to train the model and classify new instances.
         """
 
         # The name of the training file
-        self.train_file: Path = train_file_path.parts[-1]
+        self.train_file: str = str(train_file_paths[0].parts[-1]) if len(train_file_paths) == 1 else "Merged"
+
+        # Data set's name
+        self.name = str(self.train_file).split(".")[0] if len(train_file_paths) == 1 else "Merged"
 
         # Reads the training data from the train csv
-        self.train_data: pd.DataFrame = pd.DataFrame(arff.loadarff(CWD.joinpath(train_file_path))[0]).iloc[:, 0:]
+        self.data: pd.DataFrame = pd.DataFrame(arff.loadarff(CWD.joinpath(train_file_paths[0]))[0]).iloc[:, 0:]
+
+        if len(train_file_paths) > 1:
+            for file_path in train_file_paths[1:]:
+                self.data.append(pd.DataFrame(arff.loadarff(CWD.joinpath(file_path))[0]).iloc[:, 0:])
         self.preprocess()
 
         # Splits the training data into x and y
-        self.X: pd.DataFrame = self.train_data.iloc[:, :-1]
-        self.Y: pd.DataFrame = self.train_data.iloc[:, -1].T.astype(int)
+        self.X: pd.DataFrame = self.data.iloc[:, :-1]
+        self.Y: pd.DataFrame = self.data.iloc[:, -1].T.astype(int)
         self.normalize()
 
         train_test = self.train_test_split(split_ratio)
@@ -54,33 +62,42 @@ class DataSet:
         self.y_test: pd.DataFrame = train_test[3]
 
         self.models: Dict = {"SVM": SVM, "RandomForest": RandomForest, "KNN": KNN}
-        self.feature_importance: Dict = {"SVM": [], "RandomForest": [], "KNN": []}
         self.accuracy: Dict = {"SVM": 0, "RandomForest": 0, "KNN": 0}
+        self.feature_importance: pd.DataFrame = pd.DataFrame(np.zeros((self.x_train.shape[1], 2)),
+                                                             index=list(self.x_train.columns),
+                                                             columns=["SVM", "RandomForest"])
+        self.y_predict: pd.DataFrame = pd.DataFrame(np.zeros((self.y_test.shape[0], len(list(self.models.keys())))),
+                                                    columns=list(self.models.keys()))
+        # self.fit()
+        # self.score()
 
     def preprocess(self):
         encoder = preprocessing.LabelEncoder()
-        self.train_data.rename(columns={"jundice": "jaundice", "austim": "autism", "contry_of_res": "country_of_res"},
-                               inplace=True)
+        self.data.rename(columns={"jundice": "jaundice", "austim": "autism", "contry_of_res": "country_of_res"},
+                         inplace=True)
         continents = []
 
-        for col in self.train_data.columns:
-            if self.train_data[col].dtype.type != float64:
-                self.train_data[col] = self.train_data[col].str.decode("utf-8")
+        for col in self.data.columns:
+            if self.data[col].dtype.type != float64:
+                self.data[col] = self.data[col].str.decode("utf-8")
+                self.data[col] = self.data[col].str.lower()
 
-                self.train_data[col] = self.train_data[col].str.lower()
+            if "?" in list(self.data[col].values):
+                mode = self.data[col].mode().values[0]
+                self.data.loc[self.data[col] == "?", col] = mode
 
-            if "?" in list(self.train_data[col].values):
-                mode = self.train_data[col].mode().values[0]
-                self.train_data.loc[self.train_data[col] == "?", col] = mode
+            if self.data[col].isnull().values.any():
+                mode = self.data[col].mode().values[0]
+                self.data[col].fillna(mode, inplace=True)
 
             if "country" in col:
-                countries = [country for country in self.train_data["country_of_res"].values]
+                countries = [country for country in self.data["country_of_res"].values]
                 for i in range(len(countries)):
                     if countries[i] == "americansamoa":
                         countries[i] = "american samoa"
-                self.train_data["country_of_res"] = countries
+                self.data["country_of_res"] = countries
                 continents = []
-                for country in self.train_data["country_of_res"].values:
+                for country in self.data["country_of_res"].values:
                     if country not in CONTINENTS:
                         try:
                             continents.append(country_alpha2_to_continent_code(country_name_to_country_alpha2(country, "lower")))
@@ -94,30 +111,35 @@ class DataSet:
                 #               if country not in CONTINENTS else country for country in self.train_data["country_of_res"].values]
 
             if "ethnicity" in col or "country" in col or "age_desc" in col or "relation" in col or "continent" in col:
-                self.train_data[col] = encoder.fit_transform(self.train_data[col])
+                self.data[col] = encoder.fit_transform(self.data[col])
 
             elif "Score" in col:
-                self.train_data[col] = self.train_data[col].astype(int)
+                self.data[col] = self.data[col].astype(int)
 
-        self.train_data.insert(16, "continent", continents)
-        self.train_data["continent"] = encoder.fit_transform(self.train_data["continent"])
+        self.data.insert(16, "continent", continents)
+        self.data["continent"] = encoder.fit_transform(self.data["continent"])
 
-        self.train_data.gender[self.train_data.gender == "m"] = 0
-        self.train_data.gender[self.train_data.gender == "f"] = 1
+        self.data.gender[self.data.gender == "m"] = 0
+        self.data.gender[self.data.gender == "f"] = 1
 
-        self.train_data.jaundice[self.train_data.jaundice == "no"] = 0
-        self.train_data.jaundice[self.train_data.jaundice == "yes"] = 1
+        self.data.jaundice[self.data.jaundice == "no"] = 0
+        self.data.jaundice[self.data.jaundice == "yes"] = 1
 
-        self.train_data.autism[self.train_data.autism == "no"] = 0
-        self.train_data.autism[self.train_data.autism == "yes"] = 1
+        self.data.autism[self.data.autism == "no"] = 0
+        self.data.autism[self.data.autism == "yes"] = 1
 
-        self.train_data.used_app_before[self.train_data.used_app_before == "no"] = 0
-        self.train_data.used_app_before[self.train_data.used_app_before == "yes"] = 1
+        self.data.used_app_before[self.data.used_app_before == "no"] = 0
+        self.data.used_app_before[self.data.used_app_before == "yes"] = 1
 
-        self.train_data["Class/ASD"][self.train_data["Class/ASD"] == "no"] = 0
-        self.train_data["Class/ASD"][self.train_data["Class/ASD"] == "yes"] = 1
+        self.data["Class/ASD"][self.data["Class/ASD"] == "no"] = 0
+        self.data["Class/ASD"][self.data["Class/ASD"] == "yes"] = 1
 
-        self.train_data.drop(columns=["continent", "result"], inplace=True)
+        self.data.drop(columns=["continent", "result"], inplace=True)
+
+        for col in self.data.columns:
+            self.data[col] = self.data[col].astype(float)
+        #
+        # self.train_data.reset_index(drop=True, inplace=True)
 
     def normalize(self):
         for col in ["age", "ethnicity", "country_of_res", "relation"]:
@@ -127,16 +149,20 @@ class DataSet:
 
     def train_test_split(self, percentage: float = 0.8):
         mask = np.random.rand(len(self.X)) < percentage
-        return self.X[mask], self.X[~mask], self.Y[mask], self.Y[~mask]
+        return self.X[mask].reset_index(drop=True), self.X[~mask].reset_index(drop=True), \
+               self.Y[mask].reset_index(drop=True), self.Y[~mask].reset_index(drop=True)
 
     def fit(self):
         k = floor(sqrt(len(self.x_train)))
         for model_name, model in self.models.items():
             self.models[model_name] = model(self.x_train, self.y_train, k)
-            self.feature_importance[model_name] = pd.DataFrame(self.models[model_name].coef_.ravel(), columns=self.x_train.columns) \
-                if model_name == "SVM" \
-                else pd.DataFrame(self.models[model_name].feature_importances_, columns=self.x_train.columns)\
-                if model_name != "KNN" else []
+
+            if model_name == "SVM":
+                self.feature_importance[model_name] = pd.DataFrame(self.models[model_name].coef_.ravel(),
+                                                                   index=self.x_train.columns)
+            elif model_name == "RandomForest":
+                self.feature_importance[model_name] = pd.DataFrame(self.models[model_name].feature_importances_,
+                                                                   index=self.x_train.columns)
 
     def score(self):
         for model_name, model in self.models.items():
@@ -146,7 +172,7 @@ class DataSet:
         return f"<DataSet Object> {self.train_file}"
 
     def __str__(self):
-        return str(self.train_data)
+        return str(self.data)
 
 
 def SVM(X: pd.DataFrame, y: pd.DataFrame, *args):
@@ -167,10 +193,29 @@ def KNN(X: pd.DataFrame, y: pd.DataFrame, k: int):
     return knn
 
 
+def fit_models(data_sets: List[DataSet]):
+    for data_set in data_sets:
+        data_set.fit()
+
+
+def score_models(data_sets: List[DataSet]):
+    for data_set in data_sets:
+        data_set.score()
+
+
 split = 0.7
-Adolescents = DataSet(CWD.joinpath("data", "Autism-Adolescent-Data Plus Description", "Autism-Adolescent-Data.arff"), split_ratio=split)
-Adults = DataSet(CWD.joinpath("data", "Autism-Adult-Data Plus Description File", "Autism-Adult-Data.arff"), split_ratio=split)
-Children = DataSet(CWD.joinpath("data", "Autism-Screening-Child-Data Plus Description", "Autism-Child-Data.arff"), split_ratio=split)
+
+ADOLESCENTS_PATH = CWD.joinpath("data", "Autism-Adolescent-Data Plus Description", "Autism-Adolescent-Data.arff")
+ADULTS_PATH = CWD.joinpath("data", "Autism-Adult-Data Plus Description File", "Autism-Adult-Data.arff")
+CHILDREN_PATH = CWD.joinpath("data", "Autism-Screening-Child-Data Plus Description", "Autism-Child-Data.arff")
+
+Adolescents = DataSet([ADOLESCENTS_PATH], split_ratio=split)
+Adults = DataSet([ADULTS_PATH], split_ratio=split)
+Children = DataSet([CHILDREN_PATH], split_ratio=split)
+Merged = DataSet([ADOLESCENTS_PATH, ADULTS_PATH, CHILDREN_PATH], split_ratio=split)
+
+ALL_DATA_SETS = [Adolescents, Adults, Children, Merged]
+
 
 if __name__ == "__main__":
     d = DataSet(CWD.joinpath("data", "Autism-Adolescent-Data Plus Description", "Autism-Adolescent-Data.arff"))

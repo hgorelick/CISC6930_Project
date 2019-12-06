@@ -8,7 +8,7 @@
 * Add continent column
 
 ## Imputation
-* For ethnicity (assume mean == mode):
+* For ethnicity/age (assume mean == mode):
     * Try mode of country_of_res
     * Otherwise, mode of continent
     

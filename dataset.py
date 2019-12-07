@@ -98,6 +98,12 @@ class DataSet:
                 mode = self.data[col].mode().values[0]
                 self.data[col].fillna(mode, inplace=True)
 
+            if col == "age":
+                index = self.data[self.data[col] > 120].index
+                if len(index) > 0:
+                    self.data.drop(index=index, inplace=True)
+                    self.data.reset_index(drop=True, inplace=True)
+
             if "country" in col:
                 countries = [country for country in self.data["country_of_res"].values]
                 for i in range(len(countries)):
@@ -157,14 +163,13 @@ class DataSet:
 
         for col in cols:
             if col == "result":
-                self.X[self.X[col] >= 7.5] = 1.0
+                self.X[self.X[col] >= 7.5] = 10
                 self.X[col] = np.where(self.X[col].between(5, 7.499), 5.0, self.X[col])
                 self.X[col] = np.where(self.X[col].between(2.5, 4.999), 2.5, self.X[col])
                 self.X[col] = np.where(self.X[col].between(0, 2.499), 0, self.X[col])
-            else:
-                mean_diff = self.X[col] - self.X[col].mean()
-                std = self.X[col].std(ddof=0)
-                self.X[col] = mean_diff / std if std != 0 else 0
+            mean_diff = self.X[col] - self.X[col].mean()
+            std = self.X[col].std(ddof=0)
+            self.X[col] = mean_diff / std if std != 0 else 0
 
     def train_test_split(self, percentage: float = 0.8):
         mask = np.random.rand(len(self.X)) < percentage

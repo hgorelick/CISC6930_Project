@@ -1,5 +1,4 @@
 import os
-from copy import deepcopy
 from math import sqrt, floor
 from pathlib import Path
 from typing import List, Dict
@@ -42,11 +41,13 @@ class DataSet:
         # Data set's name
         self.name = str(self.train_file).split(".")[0] if len(train_file_paths) == 1 else "Merged"
 
+        # Is this a merging of the data sets
         self.merged = merged
 
         # Reads the training data from the train csv
         self.data: pd.DataFrame = pd.DataFrame(arff.loadarff(CWD.joinpath(train_file_paths[0]))[0]).iloc[:, 0:]
 
+        # If this is a merging, drop specified columns
         if self.merged:
             for file_path in train_file_paths[1:]:
                 self.data.drop(columns=[col for col in self.data.columns if "5" in col or "7" in col or "9" in col or "10" in col],
@@ -58,6 +59,8 @@ class DataSet:
                     cols = [col for col in self.data.columns if "8" not in col] + [col for col in self.data.columns if "8" in col]
                     self.data = self.data[[cols[-1]] + cols[:-1]]
                 self.data.append(pd.DataFrame(arff.loadarff(CWD.joinpath(file_path))[0]).iloc[:, 0:])
+
+        # Preprocess data
         self.preprocess()
 
         # Splits the training data into x and y
@@ -65,12 +68,14 @@ class DataSet:
         self.Y: pd.DataFrame = self.data.iloc[:, -1].T.astype(int)
         self.normalize()
 
+        # Split data into train/test
         train_test = self.train_test_split(split_ratio)
         self.x_train: pd.DataFrame = train_test[0]
         self.x_test: pd.DataFrame = train_test[1]
         self.y_train: pd.DataFrame = train_test[2]
         self.y_test: pd.DataFrame = train_test[3]
 
+        # Initialize models, accuracy, feature importances, and class predictions
         self.models: Dict = {"SVM": SVM, "RandomForest": RandomForest, "KNN": KNN}
         self.accuracy: Dict = {"SVM": 0, "RandomForest": 0, "KNN": 0}
         self.feature_importance: pd.DataFrame = pd.DataFrame(np.zeros((self.x_train.shape[1], 2)),
@@ -80,24 +85,36 @@ class DataSet:
                                                     columns=list(self.models.keys()))
 
     def preprocess(self):
+        """
+        Preprocesses the data set
+        """
         encoder = preprocessing.LabelEncoder()
 
+        # Replace misspelled columns
         self.data.rename(columns={"austim": "autism", "contry_of_res": "country_of_res", "jundice": "jaundice"}, inplace=True)
+
+        # Initialize list of continents
         continents = []
 
+        # Iterate through the columns and process the data accordingly
         for col in self.data.columns:
+
+            # Convert all byte-string values to strings
             if self.data[col].dtype.type != float64:
                 self.data[col] = self.data[col].str.decode("utf-8")
                 self.data[col] = self.data[col].str.lower()
 
+            # Replace all missing values with NaN
             if "?" in list(self.data[col].values):
                 self.data.loc[self.data[col] == "?", col] = np.nan
 
+            # Replace all NaNs with the column's mode
             if self.data[col].isnull().values.any():
                 self.remove_nans()
                 mode = self.data[col].mode().values[0]
                 self.data[col].fillna(mode, inplace=True)
 
+            # Check for outlier age
             if col == "age":
                 index = self.data[self.data[col] > 120].index
                 if len(index) > 0:
@@ -151,8 +168,6 @@ class DataSet:
             self.data[col] = self.data[col].astype(float)
 
     def remove_nans(self):
-        # the dataframe has to be a pandas dataframe
-        # find all nans in dataframe
         df_nans = self.data.isnull().sum().sum()
 
         if df_nans / len(self.data.index) < 0.1:
@@ -163,7 +178,8 @@ class DataSet:
 
         for col in cols:
             if col == "result":
-                self.X[self.X[col] >= 7.5] = 10
+                self.X[self.X[col] >= 9.999] = 10.0
+                self.X[col] = np.where(self.X[col].between(7.5, 9.999), 7.5, self.X[col])
                 self.X[col] = np.where(self.X[col].between(5, 7.499), 5.0, self.X[col])
                 self.X[col] = np.where(self.X[col].between(2.5, 4.999), 2.5, self.X[col])
                 self.X[col] = np.where(self.X[col].between(0, 2.499), 0, self.X[col])

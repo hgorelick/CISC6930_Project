@@ -1,5 +1,5 @@
 # Autism Classifier
-by Henry Gorelick and Debarshi Dutta
+by Henry Gorelick and Debarshi Dutta for CISC 6930: Data Mining
 
 ## Instructions
 ##### Before running any of the scripts:

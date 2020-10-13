@@ -1,4 +1,4 @@
-# CISC6930_Project
+# Autism Classifier
 by Henry Gorelick and Debarshi Dutta
 
 ## Instructions
